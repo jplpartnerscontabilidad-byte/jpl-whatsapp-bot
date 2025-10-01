@@ -129,25 +129,3 @@ app.post("/webhook", async (req, res) => {
 app.listen(PORT, () =>
   console.log(`Jarvis corriendo en puerto ${PORT}`)
 );
-📦 (Opcional) package.json recomendado
-Si tu servicio usa Node < 18 o quieres dejar todo explícito:
-
-json
-Copiar código
-{
-  "name": "jpl-jarvis-bot",
-  "version": "1.0.0",
-  "main": "index.js",
-  "type": "commonjs",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "engines": {
-    "node": ">=18.x"
-  },
-  "dependencies": {
-    "body-parser": "^1.20.3",
-    "express": "^4.19.2",
-    "node-fetch": "^3.3.2"
-  }
-}
