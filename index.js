@@ -1,67 +1,74 @@
-// index.cjs — versión simple y estable (sin OpenAI) para probar end-to-end
-const express = require("express");
-const { twiml: TwiML } = require("twilio");
+// index.js - Jarvis (simple) con Twilio + Express en ESM
+
+import express from "express";
+import bodyParser from "body-parser";
+import cors from "cors";
+
+// Twilio en ESM: import default y extrae twiml
+import twilio from "twilio";
+const { MessagingResponse } = twilio.twiml;
 
 const app = express();
-app.use(express.urlencoded({ extended: false }));
+app.use(cors());
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
-// Pequeño “router” de intenciones básicas
-function generarRespuesta(msg) {
-  const t = (msg || "").toLowerCase();
+// --- Utilidad simple para respuestas según intención ---
+function respuestaJarvis(texto) {
+  const t = (texto || "").toLowerCase();
 
-  // Saludos
-  if (/\b(hola|buenos dias|buenas|buenas tardes|buenas noches)\b/.test(t)) {
-    return (
-      "¡Hola! Soy Jarvis de JPL Partners 👋.\n" +
-      "Cuéntame: ¿tu consulta es sobre *contabilidad*, *impuestos* o *nómina*?\n" +
-      "Puedo guiarte paso a paso. 🙂"
-    );
+  if (!t || t === "hola" || t.startsWith("buenos") || t.includes("saludo")) {
+    return "¡Hola! Soy Jarvis de JPL Partners 👋. ¿En qué tema contable/tributario te apoyamos? (Contabilidad / Impuestos / Nómina / Auditoría)";
   }
 
-  // Impuestos
-  if (/(impuesto|renta|iva|ica|retención|retencion)/.test(t)) {
-    return (
-      "Perfecto, hablemos de *impuestos* 🧾.\n" +
-      "¿Eres *persona natural* o *empresa*? y ¿en qué ciudad operas? Con eso te digo pasos y fechas clave."
-    );
+  if (t.includes("contab")) {
+    return "Perfecto. Para contabilidad, ¿tu empresa es micro, pequeña, mediana o grande? y ¿en qué ciudad operan?";
   }
 
-  // Contabilidad
-  if (/(contab|balance|niif|facturaci[oó]n|facturacion|estados financieros)/.test(t)) {
-    return (
-      "Sobre *contabilidad* 📊: ¿qué necesitas exactamente? " +
-      "¿Organizar libros, implementar NIIF, emitir estados financieros o automatizar facturación?"
-    );
+  if (t.includes("impuest") || t.includes("tribut")) {
+    return "Entendido. Sobre impuestos: ¿hablamos de declaración anual, retenciones, IVA, régimen simple u otra obligación puntual?";
   }
 
-  // Nómina
-  if (/(n[oó]mina|nomina|seguridad social|prestaciones|contrato|salario)/.test(t)) {
-    return (
-      "En *nómina* 👥, puedo ayudarte con liquidaciones, seguridad social y cálculo de prestaciones. " +
-      "¿Cuántos empleados tienes y con qué periodicidad pagas?"
-    );
+  if (t.includes("nómina") || t.includes("nomina")) {
+    return "Claro. En nómina, ¿cuántos empleados tienen y qué software usan (si aplica)?";
   }
 
-  // Si no entendemos bien
-  return (
-    "Gracias por escribir a *JPL Partners* 🙌.\n" +
-    "Para apoyarte mejor, dime si tu consulta es sobre:\n" +
-    "• Contabilidad\n• Impuestos\n• Nómina\n" +
-    "y cuál es tu ciudad/actividad. Con eso te doy pasos claros. 🙂"
-  );
+  if (t.includes("auditor")) {
+    return "Perfecto. ¿La auditoría es interna, externa o por requerimiento específico? ¿Qué periodo necesitan revisar?";
+  }
+
+  // Fallback
+  return "¡Gracias por el mensaje! Para ayudarte mejor, cuéntame si es sobre Contabilidad, Impuestos, Nómina o Auditoría. 👨‍💼📊";
 }
 
-app.post("/webhook", (req, res) => {
-  const from = req.body.From || "";
-  const body = (req.body.Body || "").trim();
-  console.log("Inbound from Twilio:", { from, body });
+// --- Webhook de Twilio ---
+app.post("/webhook", async (req, res) => {
+  try {
+    // Twilio envía From/Body (a veces en minúsculas según lib). Mapeamos seguro:
+    const from = req.body.From || req.body.from || "";
+    const body = (req.body.Body || req.body.body || "").trim();
 
-  const respuesta = generarRespuesta(body);
+    console.log("Inbound from Twilio:", { from, body });
 
-  const twiml = new TwiML.MessagingResponse();
-  twiml.message(respuesta);
-  res.type("text/xml").status(200).send(twiml.toString());
+    const twiml = new MessagingResponse();
+    const msg = twiml.message();
+
+    // Respuesta del “asistente”
+    const texto = respuestaJarvis(body);
+    msg.body(texto);
+
+    res.writeHead(200, { "Content-Type": "text/xml" }).end(twiml.toString());
+  } catch (err) {
+    console.error("Error en /webhook:", err);
+    res.status(500).send("Error");
+  }
 });
 
+// Healthcheck
+app.get("/", (_req, res) => res.send("OK - JPL bot vivo"));
+
+// Puerto para Render
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Jarvis (simple) escuchando en puerto ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Jarvis (simple) escuchando en puerto ${PORT}`);
+});
