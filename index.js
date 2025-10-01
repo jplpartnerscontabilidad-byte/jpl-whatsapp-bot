@@ -1,12 +1,14 @@
 // index.js
-// Bot "Jarvis" de JPL Partners - WhatsApp (Twilio) + OpenAI
-// Estilo: asesor contable profesional, español (Colombia)
+// Jarvis – Bot de JPL Partners (WhatsApp - Twilio + OpenAI)
+// Español (Colombia) – tono profesional y cercano
 
 const express = require("express");
 const bodyParser = require("body-parser");
 
-// Si estás en Node 18+ puedes usar fetch nativo; si no, descomenta esta línea:
-// const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+// fetch: usa el nativo (Node 18+) y si no, carga node-fetch dinámicamente
+const fetch =
+  global.fetch ||
+  ((...args) => import("node-fetch").then(({ default: f }) => f(...args)));
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -15,51 +17,48 @@ app.use(bodyParser.urlencoded({ extended: false }));
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Memoria breve por usuario (últimos 6 intercambios). Se reinicia al reiniciar el server.
+// Memoria breve por usuario (últimos 6 intercambios)
 const memory = new Map();
 const MAX_TURNS = 6;
-
-// Mensaje de respaldo por si falla la API
-const FALLBACK_REPLY =
-  "¡Hola! Soy Jarvis de JPL Partners. Tuve un inconveniente para procesar tu mensaje. ¿Podrías repetirlo o decirme en qué área contable/tributaria necesitas ayuda?";
 
 // Prompt de rol del asistente
 const SYSTEM_PROMPT = `
 Eres "Jarvis", asistente virtual contable de JPL Partners (firma en Colombia).
 Hablas español (Colombia), tono profesional y cercano; respuestas claras, breves y útiles.
-Objetivo: entender la necesidad del cliente y guiarlo con:
-- Contabilidad mensual y cierres
-- Impuestos (DIAN), regularizaciones y planeación tributaria
-- Nómina y seguridad social
-- Facturación electrónica y organización administrativa
-- Diagnóstico gratuito y propuesta personalizada
+Tu misión es entender la necesidad del cliente y guiarlo en:
+• Contabilidad mensual y cierres
+• Impuestos (DIAN), regularizaciones y planeación tributaria
+• Nómina y seguridad social
+• Facturación electrónica y organización administrativa
+• Diagnóstico gratuito y propuesta personalizada
 
 Reglas:
-- No des consejos ilegales ni promesas irreales.
-- Si piden precios, explica que son personalizados; ofrece agendar llamada/diagnóstico sin costo.
-- Pide datos cuando corresponda (nombre, empresa, ciudad, correo).
-- Usa viñetas cuando convenga; no escribas párrafos muy largos.
-- Mantén empatía, proactividad y enfoque consultivo.
+• No des consejos ilegales ni promesas irreales.
+• Si piden precios, explica que son personalizados; ofrece agendar una llamada o diagnóstico sin costo.
+• Pide datos cuando corresponda (nombre, empresa, ciudad, correo).
+• Usa viñetas cuando convenga; evita párrafos muy largos.
+• Mantén empatía, proactividad y enfoque consultivo.
 `;
 
+// Mensaje de respaldo si algo falla
+const FALLBACK_REPLY =
+  "¡Hola! Soy Jarvis de JPL Partners. Tuve un inconveniente para procesar tu mensaje. ¿Podrías repetirlo o decirme en qué área contable/tributaria necesitas ayuda?";
+
+// Helpers
 function sanitize(text = "", max = 1200) {
   return String(text).replace(/\s+/g, " ").trim().slice(0, max);
 }
-
-// Para responder a Twilio (TwiML)
-function sendTwiml(res, message) {
-  res.set("Content-Type", "text/xml");
-  res.send(`<Response><Message>${message}</Message></Response>`);
+function twiml(message) {
+  return `<Response><Message>${message}</Message></Response>`;
 }
 
-// Endpoint de salud
+// Health checks
 app.get("/", (_req, res) => res.status(200).send("OK - Jarvis online"));
-
 app.get("/webhook", (_req, res) =>
   res.status(200).send("OK - /webhook GET. Use POST desde Twilio.")
 );
 
-// ------- Lógica principal del bot -------
+// ------- Webhook principal (Twilio) -------
 app.post("/webhook", async (req, res) => {
   try {
     const from = req.body.From || "desconocido";
@@ -67,62 +66,88 @@ app.post("/webhook", async (req, res) => {
 
     console.log("Inbound from Twilio:", { from, body });
 
+    // Si no hay KEY, responde fallback
     if (!OPENAI_API_KEY) {
-      console.error("Falta OPENAI_API_KEY");
-      return sendTwiml(res, FALLBACK_REPLY);
+      console.error("OPENAI_API_KEY ausente");
+      res.set("Content-Type", "text/xml");
+      return res.send(twiml(FALLBACK_REPLY));
     }
 
-    // Recuperar historial breve del contacto
+    // Recuperar historial
     const history = memory.get(from) || [];
 
     // Construir mensajes para OpenAI
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
-      ...history, // últimos turnos del chat
-      { role: "user", content: body }
+      ...history,
+      { role: "user", content: body || "El usuario saludó." }
     ];
 
-    // Llamado a OpenAI (Chat Completions)
-    const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Llamada a OpenAI Chat Completions
+    const oai = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",     // rápido y económico; puedes cambiar a gpt-4o si quieres más calidad
-        temperature: 0.3,         // control de creatividad (0.2–0.5 recomendado)
+        model: "gpt-4o-mini", // calidad/costo equilibrado
+        temperature: 0.3,     // respuestas profesionales y consistentes
         messages
       })
     });
 
-    const data = await openaiRes.json();
+    const data = await oai.json();
 
-    // Si algo salió mal con la API
-    if (!openaiRes.ok) {
+    if (!oai.ok) {
       console.error("OpenAI error:", data);
-      return sendTwiml(res, FALLBACK_REPLY);
+      res.set("Content-Type", "text/xml");
+      return res.send(twiml(FALLBACK_REPLY));
     }
 
     let reply = sanitize(data?.choices?.[0]?.message?.content || "");
     if (!reply) reply = FALLBACK_REPLY;
 
-    // Actualizar memoria (capamos a los últimos 6 turnos)
+    // Actualizar memoria (capar a últimos 6 turnos)
     const updated = [
       ...history,
       { role: "user", content: body },
       { role: "assistant", content: reply }
     ].slice(-MAX_TURNS);
-
     memory.set(from, updated);
 
-    // Responder a WhatsApp
-    return sendTwiml(res, reply);
+    // Responder a Twilio
+    res.set("Content-Type", "text/xml");
+    return res.send(twiml(reply));
   } catch (err) {
     console.error("Webhook error:", err);
-    return sendTwiml(res, FALLBACK_REPLY);
+    res.set("Content-Type", "text/xml");
+    return res.send(twiml(FALLBACK_REPLY));
   }
 });
 
-// Lanzar servidor
-app.listen(PORT, () => console.log(`Jarvis corriendo en puerto ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`Jarvis corriendo en puerto ${PORT}`)
+);
+📦 (Opcional) package.json recomendado
+Si tu servicio usa Node < 18 o quieres dejar todo explícito:
+
+json
+Copiar código
+{
+  "name": "jpl-jarvis-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2"
+  }
+}
