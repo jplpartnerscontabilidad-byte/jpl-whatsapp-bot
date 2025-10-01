@@ -1,7 +1,7 @@
 {
   "name": "jpl-whatsapp-bot",
   "version": "1.0.0",
-  "description": "Jarvis - Bot de WhatsApp para JPL Partners (Twilio + OpenAI)",
+  "description": "Jarvis - Bot de WhatsApp para JPL Partners (Twilio + Express)",
   "type": "module",
   "main": "index.js",
   "engines": {
