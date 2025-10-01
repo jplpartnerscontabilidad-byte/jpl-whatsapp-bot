@@ -1,31 +1,33 @@
+// index.js  (CommonJS)
 const express = require("express");
 const bodyParser = require("body-parser");
-const axios = require("axios");
 
 const app = express();
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false })); // Twilio envía x-www-form-urlencoded
 
-// Webhook de Twilio
-app.post("/webhook", async (req, res) => {
-  const message = req.body.Body;
-  const from = req.body.From;
+// Salud general (para probar en el navegador)
+app.get("/", (_req, res) => {
+  res.status(200).send("OK - JPL bot vivo");
+});
 
-  console.log("Mensaje recibido:", message, "De:", from);
+// Salud de la ruta webhook con GET (para navegador)
+app.get("/webhook", (_req, res) => {
+  res.status(200).send("OK - /webhook GET. Use POST desde Twilio.");
+});
 
-  // Aquí se conecta a GPT (simulación básica con respuesta fija por ahora)
-  let reply = "👋 Hola, gracias por escribir a JPL Partners. Cuéntanos, ¿en qué podemos ayudarte con tu contabilidad o impuestos?";
+// Webhook real (Twilio llama aquí con POST)
+app.post("/webhook", (req, res) => {
+  console.log("Inbound from Twilio:", { from: req.body.From, body: req.body.Body });
 
-  // Responder a Twilio
-  res.set("Content-Type", "application/xml");
-  res.send(`
+  // Respuesta TwiML fija (sin GPT) para validar toda la tubería
+  const twiml = `
     <Response>
-      <Message>${reply}</Message>
+      <Message>👋 Hola, soy Jarvis de JPL Partners. ¡Te leo!</Message>
     </Response>
-  `);
+  `;
+  res.set("Content-Type", "text/xml");
+  res.send(twiml);
 });
 
-// Puerto dinámico (Render asigna PORT automáticamente)
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Bot corriendo en puerto ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Bot corriendo en puerto ${PORT}`));
