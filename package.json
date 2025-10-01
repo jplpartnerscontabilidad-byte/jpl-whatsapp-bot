@@ -1,14 +1,12 @@
 {
   "name": "jpl-whatsapp-bot",
   "version": "1.0.0",
-  "type": "module",
   "engines": { "node": ">=18" },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.cjs"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "twilio": "^4.22.0",
-    "node-fetch": "^3.3.2"
+    "twilio": "^4.22.0"
   }
 }
