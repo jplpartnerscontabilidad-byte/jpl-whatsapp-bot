@@ -1,100 +1,124 @@
-// index.js
-// Bot "Jarvis" de JPL Partners – Asesor Contable Virtual
-// WhatsApp + Twilio + OpenAI
+// index.js (CommonJS)
+// Jarvis - Asesor contable (ES-CO) para JPL Partners
+// Express + Twilio Webhook + OpenAI (vía fetch de Node 18+)
 
-import express from "express";
-import bodyParser from "body-parser";
-import fetch from "node-fetch";
-
+const express = require("express");
 const app = express();
-app.use(bodyParser.json());
 
-// Configuración del puerto y API Key
+// Twilio envía application/x-www-form-urlencoded por defecto
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// Memoria por usuario (últimos mensajes)
+// Memoria simple por usuario (últimos N turnos)
 const memoria = new Map();
-const MAX_INTERCAMBIOS = 6;
+const MAX_TURNS = 6;
 
-// Función para generar respuesta usando OpenAI
+// Genera respuesta usando la API de OpenAI (chat.completions)
 async function generarRespuesta(usuario, mensaje) {
-  // Recuperar historial del usuario
-  let historial = memoria.get(usuario) || [];
-  historial.push({ role: "user", content: mensaje });
+  // Recupero historial breve
+  let hist = memoria.get(usuario) || [];
 
-  // Limitar historial a los últimos intercambios
-  if (historial.length > MAX_INTERCAMBIOS) {
-    historial = historial.slice(-MAX_INTERCAMBIOS);
-  }
+  // Mensaje del usuario
+  hist.push({ role: "user", content: mensaje });
+  if (hist.length > MAX_TURNS) hist = hist.slice(-MAX_TURNS);
 
-  // Prompt inicial para que actúe como asesor contable
-  const promptSistema = {
+  // Instrucción de sistema (rol del asesor)
+  const systemPrompt = {
     role: "system",
-    content: `Eres Jarvis, un asesor contable profesional y amigable de JPL Partners en Colombia. 
-Responde en español, tono cercano pero profesional. 
-Ayudas a empresarios con temas de contabilidad, impuestos, nómina, facturación electrónica y finanzas. 
-Si no entiendes algo, pide amablemente más detalles.`
+    content: `Eres Jarvis, asesor contable profesional y cercano de JPL Partners en Colombia.
+Hablas en español (Colombia) y ayudas a empresarios con: contabilidad, impuestos, nómina,
+facturación electrónica y reportes financieros.
+Usa un tono claro, amable y experto, ofrece pasos concretos y preguntas de clarificación
+cuando falte información.`
   };
 
-  const mensajes = [promptSistema, ...historial];
+  const mensajes = [systemPrompt, ...hist];
 
-  // Llamada a la API de OpenAI
-  const respuesta = await fetch("https://api.openai.com/v1/chat/completions", {
+  // Llamada simple al endpoint de Chat Completions
+  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      Authorization: `Bearer ${OPENAI_API_KEY}`
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini", // económico y rápido
+      model: "gpt-4o-mini",
       messages: mensajes,
-      temperature: 0.7,
-    }),
+      temperature: 0.7
+    })
   });
 
-  const data = await respuesta.json();
-  const texto = data.choices?.[0]?.message?.content || "Lo siento, hubo un error.";
+  if (!resp.ok) {
+    const txt = await resp.text();
+    console.error("OpenAI error:", txt);
+    return "Lo siento, tuve un inconveniente procesando tu solicitud. ¿Puedes intentar nuevamente?";
+  }
 
-  // Guardar en memoria
-  historial.push({ role: "assistant", content: texto });
-  memoria.set(usuario, historial);
+  const data = await resp.json();
+  const texto = data?.choices?.[0]?.message?.content?.trim() ||
+    "Lo siento, ocurrió un error al generar la respuesta.";
+
+  // Guardar turno del asistente
+  hist.push({ role: "assistant", content: texto });
+  memoria.set(usuario, hist);
 
   return texto;
 }
 
-// Webhook para mensajes entrantes de Twilio
+// Webhook de Twilio (WhatsApp)
 app.post("/webhook", async (req, res) => {
-  const twilio = req.body;
-  const mensajeEntrante = twilio.Body || "";
-  const numeroUsuario = twilio.From || "usuario";
-
   try {
-    const respuesta = await generarRespuesta(numeroUsuario, mensajeEntrante);
+    // Twilio envía campos Body y From
+    const cuerpo = req.body || {};
+    const mensaje = (cuerpo.Body || "").trim();
+    const usuario = cuerpo.From || "desconocido";
 
-    // Formato Twilio para responder
+    if (!mensaje) {
+      res.set("Content-Type", "text/xml");
+      return res.send(`
+        <Response>
+          <Message>No recibí tu mensaje. ¿Puedes enviarlo nuevamente?</Message>
+        </Response>
+      `);
+    }
+
+    const reply = await generarRespuesta(usuario, mensaje);
+
+    // Twilio espera XML
     res.set("Content-Type", "text/xml");
     res.send(`
       <Response>
-        <Message>${respuesta}</Message>
+        <Message>${escapeXML(reply)}</Message>
       </Response>
     `);
-  } catch (error) {
-    console.error(error);
+  } catch (e) {
+    console.error("Error en /webhook:", e);
     res.set("Content-Type", "text/xml");
     res.send(`
       <Response>
-        <Message>Lo siento, ocurrió un error. Intenta de nuevo en un momento.</Message>
+        <Message>Hubo un error interno. Intentemos de nuevo en un momento.</Message>
       </Response>
     `);
   }
 });
 
-// Endpoint de prueba
-app.get("/", (req, res) => {
-  res.send("✅ Jarvis está vivo y listo para asesorar");
+// Página de vida
+app.get("/", (_req, res) => {
+  res.send("✅ Jarvis de JPL Partners está en línea");
 });
 
-// Iniciar servidor
-app.listen(PORT, () => console.log(`Servidor Jarvis escuchando en puerto ${PORT}`));
+// Escuchar puerto
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en puerto ${PORT}`);
+});
 
+// --- Utilidad para XML (evita caracteres problemáticos) ---
+function escapeXML(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
