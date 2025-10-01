@@ -1,79 +1,67 @@
-// index.js (ES Modules)
-// Bot "Jarvis" para WhatsApp (Twilio) + OpenAI con fallback si OpenAI falla/sin saldo.
-
-import express from "express";
-import fetch from "node-fetch";
-import { twiml as TwiML } from "twilio";
+// index.cjs — versión simple y estable (sin OpenAI) para probar end-to-end
+const express = require("express");
+const { twiml: TwiML } = require("twilio");
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// Pequeño “router” de intenciones básicas
+function generarRespuesta(msg) {
+  const t = (msg || "").toLowerCase();
 
-async function askOpenAI(userText) {
-  if (!OPENAI_API_KEY) return null; // si no hay clave, ir directo al fallback
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Eres Jarvis, asesor contable profesional de JPL Partners (Colombia). " +
-              "Hablas en español (Colombia). Ayudas en contabilidad, impuestos, nómina y reportes. " +
-              "Sé cordial, claro y breve; ofrece pasos concretos y si falta info, pide lo mínimo."
-          },
-          { role: "user", content: userText || "Hola" }
-        ]
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-
-    if (!r.ok) {
-      const t = await r.text();
-      console.error("OpenAI error:", t);
-      return null;
-    }
-
-    const data = await r.json();
-    const answer = data?.choices?.[0]?.message?.content?.trim();
-    return answer || null;
-  } catch (err) {
-    console.error("OpenAI timeout/error:", err?.message || err);
-    return null;
+  // Saludos
+  if (/\b(hola|buenos dias|buenas|buenas tardes|buenas noches)\b/.test(t)) {
+    return (
+      "¡Hola! Soy Jarvis de JPL Partners 👋.\n" +
+      "Cuéntame: ¿tu consulta es sobre *contabilidad*, *impuestos* o *nómina*?\n" +
+      "Puedo guiarte paso a paso. 🙂"
+    );
   }
+
+  // Impuestos
+  if (/(impuesto|renta|iva|ica|retención|retencion)/.test(t)) {
+    return (
+      "Perfecto, hablemos de *impuestos* 🧾.\n" +
+      "¿Eres *persona natural* o *empresa*? y ¿en qué ciudad operas? Con eso te digo pasos y fechas clave."
+    );
+  }
+
+  // Contabilidad
+  if (/(contab|balance|niif|facturaci[oó]n|facturacion|estados financieros)/.test(t)) {
+    return (
+      "Sobre *contabilidad* 📊: ¿qué necesitas exactamente? " +
+      "¿Organizar libros, implementar NIIF, emitir estados financieros o automatizar facturación?"
+    );
+  }
+
+  // Nómina
+  if (/(n[oó]mina|nomina|seguridad social|prestaciones|contrato|salario)/.test(t)) {
+    return (
+      "En *nómina* 👥, puedo ayudarte con liquidaciones, seguridad social y cálculo de prestaciones. " +
+      "¿Cuántos empleados tienes y con qué periodicidad pagas?"
+    );
+  }
+
+  // Si no entendemos bien
+  return (
+    "Gracias por escribir a *JPL Partners* 🙌.\n" +
+    "Para apoyarte mejor, dime si tu consulta es sobre:\n" +
+    "• Contabilidad\n• Impuestos\n• Nómina\n" +
+    "y cuál es tu ciudad/actividad. Con eso te doy pasos claros. 🙂"
+  );
 }
 
-app.post("/webhook", async (req, res) => {
+app.post("/webhook", (req, res) => {
   const from = req.body.From || "";
   const body = (req.body.Body || "").trim();
   console.log("Inbound from Twilio:", { from, body });
 
-  let text = await askOpenAI(body);
-
-  if (!text) {
-    text =
-      "¡Gracias por escribir a JPL Partners! En este momento estoy con alta demanda. " +
-      "¿Tu consulta es sobre contabilidad, nómina o impuestos? Puedo guiarte paso a paso.";
-  }
+  const respuesta = generarRespuesta(body);
 
   const twiml = new TwiML.MessagingResponse();
-  twiml.message(text);
+  twiml.message(respuesta);
   res.type("text/xml").status(200).send(twiml.toString());
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Servidor escuchando en puerto ${PORT}`));
-
+app.listen(PORT, () => console.log(`Jarvis (simple) escuchando en puerto ${PORT}`));
